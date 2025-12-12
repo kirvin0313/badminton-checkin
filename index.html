@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <title>羽球社點名</title>
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <style>
+    body { font-family: sans-serif; padding: 20px; text-align: center; }
+    .ok { color: green; font-size: 20px; }
+    .err { color: red; font-size: 18px; }
+    button { padding: 12px 20px; font-size: 16px; }
+  </style>
+</head>
+<body>
+  <h2>羽球社點名中…</h2>
+  <div id="msg">請稍候</div>
+
+  <script>
+    const LIFF_ID = "請換成你的_LIFF_ID";
+    const API_BASE = "https://你的後端網址"; // 例如 https://abc.ngrok.app
+
+    function getToken() {
+      const p = new URLSearchParams(window.location.search);
+      return p.get("t");
+    }
+
+    async function main() {
+      await liff.init({ liffId: LIFF_ID });
+
+      if (!liff.isLoggedIn()) {
+        liff.login();
+        return;
+      }
+
+      const profile = await liff.getProfile();
+      const token = getToken();
+
+      if (!token) {
+        document.getElementById("msg").innerHTML =
+          "<div class='err'>缺少點名 QR token</div>";
+        return;
+      }
+
+      const res = await fetch(API_BASE + "/checkin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token,
+          line_user_id: profile.userId
+        })
+      });
+
+      const data = await res.json();
+
+      if (data.ok) {
+        document.getElementById("msg").innerHTML =
+          "<div class='ok'>✅ 點名成功</div>";
+      } else if (data.reason === "NEED_PAY") {
+        document.getElementById("msg").innerHTML =
+          "<div class='err'>需要單次付費</div><br>" +
+          "<button onclick='alert(\"這裡之後接 LINE Pay\")'>前往付款</button>";
+      } else {
+        document.getElementById("msg").innerHTML =
+          "<div class='err'>點名失敗</div>";
+      }
+    }
+
+    main();
+  </script>
+</body>
+</html>
