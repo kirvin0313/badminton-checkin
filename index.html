@@ -2,29 +2,46 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8" />
-  <title>羽球社點名</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>羽球社報到</title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <style>
-    body { font-family: sans-serif; padding: 20px; text-align: center; }
-    .ok { color: green; font-size: 20px; }
-    .err { color: red; font-size: 18px; }
-    button { padding: 12px 20px; font-size: 16px; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 22px; text-align:center; }
+    .card { max-width: 520px; margin: 0 auto; padding: 18px; border: 1px solid #eee; border-radius: 16px; }
+    .ok { font-size: 20px; color: #118a2a; }
+    .warn { font-size: 18px; color: #b45309; }
+    .err { font-size: 18px; color: #b91c1c; }
+    .small { color:#666; font-size: 13px; margin-top: 8px; }
+    .btn { display:inline-block; padding: 12px 18px; border-radius: 12px; border: 1px solid #ddd; cursor:pointer; }
   </style>
 </head>
 <body>
-  <h2>羽球社點名中…</h2>
-  <div id="msg">請稍候</div>
+  <div class="card">
+    <h2>羽球社報到</h2>
+    <div id="msg">初始化中…</div>
+    <div id="sub" class="small"></div>
+  </div>
 
   <script>
-    const LIFF_ID = "2008684760-00HydtQU";
-    const API_BASE = "https://shoes-midnight-improved-java.trycloudflare.com"; // 例如 https://abc.ngrok.app
+    // ✅ 1) 填你的 LIFF ID
+    const LIFF_ID = "請填你的LIFF_ID";
 
-    function getToken() {
-      const p = new URLSearchParams(window.location.search);
-      return p.get("t");
+    // ✅ 2) 填你的 Apps Script Web App URL（/exec）
+    const GAS_URL = "請填你的WebAppURL";
+
+    function qp(name) {
+      return new URLSearchParams(location.search).get(name);
+    }
+
+    function sessionLabel(session) {
+      if (session === "THU") return "週四場";
+      if (session === "SAT") return "週六場";
+      return session;
     }
 
     async function main() {
+      document.getElementById("msg").innerText = "啟動 LIFF 中…";
+
       await liff.init({ liffId: LIFF_ID });
 
       if (!liff.isLoggedIn()) {
@@ -33,39 +50,46 @@
       }
 
       const profile = await liff.getProfile();
-      const token = getToken();
 
-      if (!token) {
-        document.getElementById("msg").innerHTML =
-          "<div class='err'>缺少點名 QR token</div>";
-        return;
-      }
+      // 你可以用兩種方式：
+      // A) 固定：?session=THU / ?session=SAT
+      // B) 每場更新：?session=20251219-THU-2000
+      const session = qp("session") || "THU";
 
-      const res = await fetch(API_BASE + "/checkin", {
+      document.getElementById("msg").innerText = "報到送出中…";
+
+      const res = await fetch(GAS_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          token,
-          line_user_id: profile.userId
+          line_user_id: profile.userId,
+          display_name: profile.displayName,
+          session: session
         })
       });
 
       const data = await res.json();
 
-      if (data.ok) {
-        document.getElementById("msg").innerHTML =
-          "<div class='ok'>✅ 點名成功</div>";
-      } else if (data.reason === "NEED_PAY") {
-        document.getElementById("msg").innerHTML =
-          "<div class='err'>需要單次付費</div><br>" +
-          "<button onclick='alert(\"這裡之後接 LINE Pay\")'>前往付款</button>";
-      } else {
-        document.getElementById("msg").innerHTML =
-          "<div class='err'>點名失敗</div>";
+      if (!data.ok) {
+        document.getElementById("msg").innerHTML = `<div class="err">❌ 報到失敗：${data.error || "UNKNOWN"}</div>`;
+        return;
       }
+
+      const memberText = data.is_member ? "（年繳會員 ✅）" : "（非年繳 / 已過期）";
+
+      if (data.already) {
+        document.getElementById("msg").innerHTML = `<div class="warn">⚠️ 已報到過<br>${sessionLabel(session)} ${memberText}</div>`;
+      } else {
+        document.getElementById("msg").innerHTML = `<div class="ok">✅ 報到成功<br>${sessionLabel(session)} ${memberText}</div>`;
+      }
+
+      document.getElementById("sub").innerText =
+        `報到人：${profile.displayName}｜userId：${profile.userId.substring(0,6)}…`;
     }
 
-    main();
+    main().catch(err => {
+      document.getElementById("msg").innerHTML = `<div class="err">❌ 發生錯誤：${String(err)}</div>`;
+    });
   </script>
 </body>
 </html>
