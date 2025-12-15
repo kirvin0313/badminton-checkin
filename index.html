@@ -3,93 +3,179 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>羽球社報到</title>
+  <title>羽球社報到（Debug）</title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 22px; text-align:center; }
-    .card { max-width: 520px; margin: 0 auto; padding: 18px; border: 1px solid #eee; border-radius: 16px; }
-    .ok { font-size: 20px; color: #118a2a; }
-    .warn { font-size: 18px; color: #b45309; }
-    .err { font-size: 18px; color: #b91c1c; }
-    .small { color:#666; font-size: 13px; margin-top: 8px; }
-    .btn { display:inline-block; padding: 12px 18px; border-radius: 12px; border: 1px solid #ddd; cursor:pointer; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 16px; }
+    .card { max-width: 720px; margin: 0 auto; padding: 14px; border: 1px solid #eee; border-radius: 14px; }
+    .row { margin: 10px 0; padding: 10px; background: #fafafa; border-radius: 10px; border: 1px solid #f0f0f0;}
+    .ok { color:#118a2a; font-weight:700; }
+    .warn { color:#b45309; font-weight:700; }
+    .err { color:#b91c1c; font-weight:700; }
+    code, pre { white-space: pre-wrap; word-break: break-word; }
+    .tiny { font-size: 12px; color:#666; }
+    button { padding: 10px 14px; border-radius: 10px; border: 1px solid #ddd; background: white; cursor: pointer; }
   </style>
 </head>
 <body>
   <div class="card">
-    <h2>羽球社報到</h2>
-    <div id="msg">初始化中…</div>
-    <div id="sub" class="small"></div>
+    <h2>羽球社報到（Debug）</h2>
+    <div class="row" id="status">狀態：尚未開始</div>
+
+    <div class="row">
+      <div><b>環境資訊</b></div>
+      <div class="tiny" id="env"></div>
+    </div>
+
+    <div class="row">
+      <div><b>讀取到的參數</b></div>
+      <div class="tiny" id="params"></div>
+    </div>
+
+    <div class="row">
+      <div><b>LIFF / 使用者資訊</b></div>
+      <div class="tiny" id="profile"></div>
+    </div>
+
+    <div class="row">
+      <div><b>送出到 Apps Script 的 payload</b></div>
+      <pre id="payload"></pre>
+    </div>
+
+    <div class="row">
+      <div><b>Apps Script 回應</b></div>
+      <pre id="resp"></pre>
+    </div>
+
+    <div class="row">
+      <button id="retry">重新嘗試</button>
+      <div class="tiny">提示：一定要用 LINE App 開啟此頁，Safari/Chrome 直接開會失敗。</div>
+    </div>
   </div>
 
-  <script>
-    // ✅ 1) 填你的 LIFF ID
-    const LIFF_ID = "2008684760-00HydtQU";
+<script>
+  // ✅ 改這兩行
+  const LIFF_ID = "2008684760-00HydtQU";  // 例：2008684760-00HydtQU
+  const GAS_URL = "https://script.google.com/macros/s/AKfycbwVVx9oNqRA5LVbAlGQGeTs79uO0UOuDL4A68U9pv9x-8KDCIZsKgFbPjRh468knawtcQ/exec"; // 例：https://script.google.com/macros/s/XXXX/exec
 
-    // ✅ 2) 填你的 Apps Script Web App URL（/exec）
-    const GAS_URL = "https://script.google.com/macros/s/AKfycbwVVx9oNqRA5LVbAlGQGeTs79uO0UOuDL4A68U9pv9x-8KDCIZsKgFbPjRh468knawtcQ/exec";
+  const el = (id) => document.getElementById(id);
+  const setStatus = (html) => el("status").innerHTML = "狀態：" + html;
 
-    function qp(name) {
-      return new URLSearchParams(location.search).get(name);
+  function qpAll() {
+    const p = new URLSearchParams(location.search);
+    const obj = {};
+    for (const [k,v] of p.entries()) obj[k] = v;
+    return obj;
+  }
+
+  async function safeJson(res) {
+    const text = await res.text();
+    try { return { json: JSON.parse(text), raw: text }; }
+    catch { return { json: null, raw: text }; }
+  }
+
+  async function run() {
+    el("resp").textContent = "";
+    el("payload").textContent = "";
+    el("profile").textContent = "";
+    el("params").textContent = "";
+    el("env").textContent = "";
+
+    // Env info
+    el("env").textContent = JSON.stringify({
+      userAgent: navigator.userAgent,
+      href: location.href,
+      inLine: "請用 LINE App 開啟",
+    }, null, 2);
+
+    // Params
+    const params = qpAll();
+    el("params").textContent = JSON.stringify(params, null, 2);
+    const session = params.session || "THU";
+
+    setStatus("初始化 LIFF…");
+
+    // LIFF init
+    await liff.init({ liffId: LIFF_ID });
+
+    const isInClient = liff.isInClient();
+    const isLoggedIn = liff.isLoggedIn();
+
+    // show liff env
+    el("env").textContent = JSON.stringify({
+      userAgent: navigator.userAgent,
+      href: location.href,
+      liff: { isInClient, isLoggedIn }
+    }, null, 2);
+
+    if (!isLoggedIn) {
+      setStatus("<span class='warn'>尚未登入，跳轉登入中…</span>");
+      liff.login();
+      return;
     }
 
-    function sessionLabel(session) {
-      if (session === "THU") return "週四場";
-      if (session === "SAT") return "週六場";
-      return session;
-    }
+    setStatus("取得使用者資料…");
 
-    async function main() {
-      document.getElementById("msg").innerText = "啟動 LIFF 中…";
+    const profile = await liff.getProfile();
+    el("profile").textContent = JSON.stringify({
+      userId: profile.userId,
+      displayName: profile.displayName
+    }, null, 2);
 
-      await liff.init({ liffId: LIFF_ID });
+    const payload = {
+      line_user_id: profile.userId,
+      display_name: profile.displayName,
+      session: session
+    };
+    el("payload").textContent = JSON.stringify(payload, null, 2);
 
-      if (!liff.isLoggedIn()) {
-        liff.login();
-        return;
-      }
+    setStatus("送出報到到 Apps Script…");
 
-      const profile = await liff.getProfile();
-
-      // 你可以用兩種方式：
-      // A) 固定：?session=THU / ?session=SAT
-      // B) 每場更新：?session=20251219-THU-2000
-      const session = qp("session") || "THU";
-
-      document.getElementById("msg").innerText = "報到送出中…";
-
-      const res = await fetch(GAS_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          line_user_id: profile.userId,
-          display_name: profile.displayName,
-          session: session
-        })
-      });
-
-      const data = await res.json();
-
-      if (!data.ok) {
-        document.getElementById("msg").innerHTML = `<div class="err">❌ 報到失敗：${data.error || "UNKNOWN"}</div>`;
-        return;
-      }
-
-      const memberText = data.is_member ? "（年繳會員 ✅）" : "（非年繳 / 已過期）";
-
-      if (data.already) {
-        document.getElementById("msg").innerHTML = `<div class="warn">⚠️ 已報到過<br>${sessionLabel(session)} ${memberText}</div>`;
-      } else {
-        document.getElementById("msg").innerHTML = `<div class="ok">✅ 報到成功<br>${sessionLabel(session)} ${memberText}</div>`;
-      }
-
-      document.getElementById("sub").innerText =
-        `報到人：${profile.displayName}｜userId：${profile.userId.substring(0,6)}…`;
-    }
-
-    main().catch(err => {
-      document.getElementById("msg").innerHTML = `<div class="err">❌ 發生錯誤：${String(err)}</div>`;
+    const res = await fetch(GAS_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
     });
-  </script>
+
+    const { json, raw } = await safeJson(res);
+
+    el("resp").textContent = JSON.stringify({
+      http_status: res.status,
+      ok: res.ok,
+      json: json,
+      raw_text: raw
+    }, null, 2);
+
+    if (!res.ok) {
+      setStatus("<span class='err'>HTTP 錯誤（請看回應區）</span>");
+      return;
+    }
+    if (!json) {
+      setStatus("<span class='err'>回應不是 JSON（請看 raw_text）</span>");
+      return;
+    }
+    if (!json.ok) {
+      setStatus("<span class='err'>Apps Script 回報失敗：" + (json.error || "UNKNOWN") + "</span>");
+      return;
+    }
+
+    const memberText = json.is_member ? "年繳會員 ✅" : "非年繳/已過期";
+    if (json.already) {
+      setStatus("<span class='warn'>已報到過（" + memberText + "）</span>");
+    } else {
+      setStatus("<span class='ok'>報到成功（" + memberText + "）</span>");
+    }
+  }
+
+  el("retry").addEventListener("click", () => run().catch(err => {
+    el("resp").textContent = String(err);
+    setStatus("<span class='err'>發生例外：" + String(err) + "</span>");
+  }));
+
+  run().catch(err => {
+    el("resp").textContent = String(err);
+    setStatus("<span class='err'>發生例外：" + String(err) + "</span>");
+  });
+</script>
 </body>
 </html>
